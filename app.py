@@ -9,7 +9,7 @@ import hashlib
 
 # Page Configuration
 st.set_page_config(
-    page_title="JEE 120-Day Master Plan",
+    page_title="Tracker",
     page_icon="📚",
     layout="wide"
 )
@@ -934,4 +934,5 @@ with tab3:
         st.dataframe(display_df, use_container_width=True, height=400)
 # Footer
 st.divider()
+
 st.caption("🚀 Consistency is the key to JEE success. Track daily, win big!")
