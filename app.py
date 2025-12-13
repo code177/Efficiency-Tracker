@@ -1084,9 +1084,6 @@ with st.sidebar:
     add_logout_button()
     
     # 👆👆👆 NEW CODE ENDS HERE 👆👆👆
-```
-
----
 
 # Main Tabs
 tab1, tab2, tab3 = st.tabs(["📝 Daily Focus", "🎯 The Master Plan", "📊 Analytics"])
@@ -1269,5 +1266,6 @@ with tab3:
 st.divider()
 
 st.caption("🚀 Consistency is the key to JEE success. Track daily, win big!")
+
 
 
