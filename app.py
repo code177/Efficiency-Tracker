@@ -1060,6 +1060,33 @@ with st.sidebar:
     
     st.divider()
     st.caption("💡 Tip: Complete Phase A for strong foundations!")
+    
+    # 👇👇👇 NEW CODE STARTS HERE 👇👇👇
+    
+    # Efficiency Preview (Last 7 Days)
+    st.divider()
+    st.caption("📈 Last 7 Days Preview")
+    
+    history_df = get_efficiency_history()
+    
+    if not history_df.empty:
+        recent_7 = history_df.head(7)
+        
+        for _, row in recent_7.iterrows():
+            eff = row['efficiency_percent']
+            emoji = "🟢" if eff >= 80 else "🟡" if eff >= 60 else "🔴"
+            st.caption(f"{emoji} {row['display_date']}: {eff}%")
+    else:
+        st.caption("No efficiency data yet. Start tracking!")
+    
+    # Admin Panel and Logout Buttons
+    show_admin_panel()
+    add_logout_button()
+    
+    # 👆👆👆 NEW CODE ENDS HERE 👆👆👆
+```
+
+---
 
 # Main Tabs
 tab1, tab2, tab3 = st.tabs(["📝 Daily Focus", "🎯 The Master Plan", "📊 Analytics"])
@@ -1242,4 +1269,5 @@ with tab3:
 st.divider()
 
 st.caption("🚀 Consistency is the key to JEE success. Track daily, win big!")
+
 
