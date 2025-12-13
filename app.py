@@ -5,7 +5,9 @@ from datetime import datetime, date
 import plotly.graph_objects as go
 import plotly.express as px
 import os
-import hashlib 
+import hashlib
+import uuid
+from datetime import timedelta
 
 # Page Configuration
 st.set_page_config(
@@ -14,31 +16,185 @@ st.set_page_config(
     layout="wide"
 )
 
-# Password Protection Function
-def check_password():
-    """Returns `True` if the user had the correct password."""
+# ============================================================================
+# PERSISTENT AUTHENTICATION SYSTEM
+# ============================================================================
+
+def init_auth_database():
+    """Initialize authentication and device tracking database"""
+    conn = sqlite3.connect('study_tracker.db')
+    c = conn.cursor()
     
+    # Devices table - tracks approved devices
+    c.execute('''CREATE TABLE IF NOT EXISTS authorized_devices
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  device_id TEXT UNIQUE NOT NULL,
+                  device_name TEXT,
+                  ip_address TEXT,
+                  user_agent TEXT,
+                  first_login TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                  last_login TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                  is_approved INTEGER DEFAULT 0,
+                  session_token TEXT,
+                  token_expiry TIMESTAMP)''')
+    
+    # Login attempts table - tracks all login attempts
+    c.execute('''CREATE TABLE IF NOT EXISTS login_attempts
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  device_id TEXT,
+                  ip_address TEXT,
+                  timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                  status TEXT,
+                  user_agent TEXT)''')
+    
+    conn.commit()
+    conn.close()
+
+def get_device_fingerprint():
+    """Generate unique device fingerprint"""
+    if 'device_id' not in st.session_state:
+        device_id = str(uuid.uuid4())
+        st.session_state.device_id = device_id
+    return st.session_state.device_id
+
+def get_client_info():
+    """Extract client information"""
+    try:
+        headers = st.context.headers
+        return {
+            'ip_address': headers.get('X-Forwarded-For', headers.get('Remote-Addr', 'Unknown')),
+            'user_agent': headers.get('User-Agent', 'Unknown'),
+        }
+    except:
+        return {
+            'ip_address': 'Unknown',
+            'user_agent': 'Unknown'
+        }
+
+def generate_session_token():
+    """Generate secure session token"""
+    return hashlib.sha256(str(uuid.uuid4()).encode()).hexdigest()
+
+def save_device_session(device_id, client_info, approved=False):
+    """Save device session to database"""
+    conn = sqlite3.connect('study_tracker.db')
+    c = conn.cursor()
+    
+    session_token = generate_session_token()
+    token_expiry = (datetime.now() + timedelta(days=30)).isoformat()
+    
+    c.execute("SELECT id FROM authorized_devices WHERE device_id = ?", (device_id,))
+    existing = c.fetchone()
+    
+    if existing:
+        c.execute('''UPDATE authorized_devices 
+                     SET last_login = CURRENT_TIMESTAMP,
+                         session_token = ?,
+                         token_expiry = ?,
+                         ip_address = ?,
+                         user_agent = ?
+                     WHERE device_id = ?''',
+                  (session_token, token_expiry, client_info['ip_address'], 
+                   client_info['user_agent'], device_id))
+    else:
+        device_name = f"Device {client_info['ip_address'][:15]}"
+        c.execute('''INSERT INTO authorized_devices 
+                     (device_id, device_name, ip_address, user_agent, 
+                      session_token, token_expiry, is_approved)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                  (device_id, device_name, client_info['ip_address'], 
+                   client_info['user_agent'], session_token, token_expiry, 
+                   1 if approved else 0))
+    
+    conn.commit()
+    conn.close()
+    
+    return session_token
+
+def check_device_approval(device_id):
+    """Check if device is approved"""
+    conn = sqlite3.connect('study_tracker.db')
+    c = conn.cursor()
+    
+    c.execute('''SELECT is_approved, session_token, token_expiry 
+                 FROM authorized_devices 
+                 WHERE device_id = ?''', (device_id,))
+    result = c.fetchone()
+    conn.close()
+    
+    if result:
+        is_approved, token, expiry = result
+        if expiry and datetime.fromisoformat(expiry) > datetime.now():
+            return bool(is_approved), token
+    
+    return False, None
+
+def log_login_attempt(device_id, client_info, status):
+    """Log login attempt"""
+    conn = sqlite3.connect('study_tracker.db')
+    c = conn.cursor()
+    
+    c.execute('''INSERT INTO login_attempts 
+                 (device_id, ip_address, status, user_agent)
+                 VALUES (?, ?, ?, ?)''',
+              (device_id, client_info['ip_address'], status, client_info['user_agent']))
+    
+    conn.commit()
+    conn.close()
+
+def check_password():
+    """Returns `True` if the user had the correct password - WITH DEVICE TRACKING."""
+    
+    # Initialize auth database
+    init_auth_database()
+    
+    # Get device fingerprint
+    device_id = get_device_fingerprint()
+    client_info = get_client_info()
+    
+    # Check if already authenticated in session
+    if 'authenticated' in st.session_state and st.session_state.authenticated:
+        return True
+    
+    # Check if device is approved with valid session
+    is_approved, session_token = check_device_approval(device_id)
+    
+    if is_approved and session_token:
+        # Device is approved and has valid session - AUTO LOGIN!
+        st.session_state.authenticated = True
+        st.session_state.device_id = device_id
+        st.session_state.session_token = session_token
+        log_login_attempt(device_id, client_info, "Auto-login Success")
+        return True
+    
+    # Show login form
     def password_entered():
         """Checks whether a password entered by the user is correct."""
-        # Hash the entered password
         entered_password = st.session_state["password"]
         hashed_input = hashlib.sha256(entered_password.encode()).hexdigest()
         
-        # Get the correct password hash from secrets
+        # Get the correct password hash from secrets (YOUR EXISTING HASH WORKS!)
         try:
             correct_hash = st.secrets["password"]["hash"]
-            if hashed_input == correct_hash:
-                st.session_state["password_correct"] = True
-                del st.session_state["password"]  # Don't store password
-            else:
-                st.session_state["password_correct"] = False
         except:
-            # Fallback for local testing (you can remove this after deployment)
-            if entered_password == "jee2025":
-                st.session_state["password_correct"] = True
-                del st.session_state["password"]
-            else:
-                st.session_state["password_correct"] = False
+            # Fallback for local testing
+            correct_hash = hashlib.sha256("jee2025".encode()).hexdigest()
+        
+        if hashed_input == correct_hash:
+            # Password correct - save device if "remember" is checked
+            if st.session_state.get("remember_device", True):
+                session_token = save_device_session(device_id, client_info, approved=True)
+                st.session_state.session_token = session_token
+            
+            st.session_state["password_correct"] = True
+            st.session_state.authenticated = True
+            st.session_state.device_id = device_id
+            
+            log_login_attempt(device_id, client_info, "Login Success")
+            del st.session_state["password"]  # Don't store password
+        else:
+            log_login_attempt(device_id, client_info, "Login Failed - Wrong Password")
+            st.session_state["password_correct"] = False
 
     # Return True if password is correct
     if st.session_state.get("password_correct", False):
@@ -50,6 +206,12 @@ def check_password():
     
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
+        # Show device info
+        with st.expander("🔍 Your Device Info", expanded=False):
+            st.caption(f"**Device ID:** `{device_id[:16]}...`")
+            st.caption(f"**IP Address:** `{client_info['ip_address']}`")
+            st.caption(f"**Browser:** `{client_info['user_agent'][:50]}...`")
+        
         st.text_input(
             "Password", 
             type="password", 
@@ -58,6 +220,11 @@ def check_password():
             placeholder="Enter your password"
         )
         
+        # Remember device checkbox
+        st.checkbox("🔒 Trust this device (stay logged in for 30 days)", 
+                   value=True, 
+                   key="remember_device")
+        
         if "password_correct" in st.session_state and not st.session_state["password_correct"]:
             st.error("😕 Incorrect password. Please try again.")
         
@@ -65,9 +232,148 @@ def check_password():
     
     return False
 
-# Check password before showing app
-if not check_password():
-    st.stop()  # Don't run the rest of the app
+
+# ============================================================================
+# ADMIN PANEL FUNCTIONS
+# ============================================================================
+
+def get_all_devices():
+    """Get all registered devices"""
+    conn = sqlite3.connect('study_tracker.db')
+    try:
+        df = pd.read_sql_query('''
+            SELECT id, device_id, device_name, ip_address, 
+                   first_login, last_login, is_approved,
+                   CASE 
+                       WHEN datetime(token_expiry) > datetime('now') THEN 'Active'
+                       ELSE 'Expired'
+                   END as session_status
+            FROM authorized_devices 
+            ORDER BY last_login DESC
+        ''', conn)
+    except:
+        df = pd.DataFrame()
+    conn.close()
+    return df
+
+def get_login_history(limit=50):
+    """Get recent login attempts"""
+    conn = sqlite3.connect('study_tracker.db')
+    try:
+        df = pd.read_sql_query('''
+            SELECT la.timestamp, la.device_id, la.ip_address, 
+                   la.status, ad.device_name
+            FROM login_attempts la
+            LEFT JOIN authorized_devices ad ON la.device_id = ad.device_id
+            ORDER BY la.timestamp DESC
+            LIMIT ?
+        ''', conn, params=(limit,))
+    except:
+        df = pd.DataFrame()
+    conn.close()
+    return df
+
+def approve_device(device_id):
+    """Approve a device for access"""
+    conn = sqlite3.connect('study_tracker.db')
+    c = conn.cursor()
+    c.execute("UPDATE authorized_devices SET is_approved = 1 WHERE device_id = ?", 
+              (device_id,))
+    conn.commit()
+    conn.close()
+
+def revoke_device(device_id):
+    """Revoke device access"""
+    conn = sqlite3.connect('study_tracker.db')
+    c = conn.cursor()
+    c.execute("UPDATE authorized_devices SET is_approved = 0 WHERE device_id = ?", 
+              (device_id,))
+    conn.commit()
+    conn.close()
+
+def delete_device(device_id):
+    """Delete device completely"""
+    conn = sqlite3.connect('study_tracker.db')
+    c = conn.cursor()
+    c.execute("DELETE FROM authorized_devices WHERE device_id = ?", (device_id,))
+    c.execute("DELETE FROM login_attempts WHERE device_id = ?", (device_id,))
+    conn.commit()
+    conn.close()
+
+def show_admin_panel():
+    """Display admin panel for device management - ONLY PASSWORD HOLDERS ARE ADMINS"""
+    
+    st.sidebar.divider()
+    
+    if st.sidebar.button("⚙️ Admin Panel", use_container_width=True):
+        st.session_state.show_admin = not st.session_state.get('show_admin', False)
+    
+    if st.session_state.get('show_admin', False):
+        st.markdown("---")
+        st.header("⚙️ Admin Device Management")
+        
+        tab_devices, tab_history = st.tabs(["📱 Devices", "📊 Login History"])
+        
+        with tab_devices:
+            st.subheader("Registered Devices")
+            
+            devices_df = get_all_devices()
+            
+            if devices_df.empty:
+                st.info("No devices registered yet")
+            else:
+                for idx, row in devices_df.iterrows():
+                    with st.expander(
+                        f"{'✅' if row['is_approved'] else '⏳'} {row['device_name']} - {row['ip_address']}",
+                        expanded=False
+                    ):
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.caption(f"**Device ID:** `{row['device_id'][:20]}...`")
+                            st.caption(f"**IP Address:** {row['ip_address']}")
+                            st.caption(f"**First Login:** {row['first_login']}")
+                            st.caption(f"**Last Login:** {row['last_login']}")
+                            st.caption(f"**Session:** {row['session_status']}")
+                            st.caption(f"**Status:** {'✅ Approved' if row['is_approved'] else '⏳ Pending'}")
+                        
+                        with col2:
+                            if row['is_approved']:
+                                if st.button("🚫 Revoke Access", key=f"revoke_{row['id']}"):
+                                    revoke_device(row['device_id'])
+                                    st.success("Access revoked!")
+                                    st.rerun()
+                            else:
+                                if st.button("✅ Approve Device", key=f"approve_{row['id']}"):
+                                    approve_device(row['device_id'])
+                                    st.success("Device approved!")
+                                    st.rerun()
+                            
+                            if st.button("🗑️ Delete Device", key=f"delete_{row['id']}", type="secondary"):
+                                delete_device(row['device_id'])
+                                st.success("Device deleted!")
+                                st.rerun()
+        
+        with tab_history:
+            st.subheader("Recent Login Attempts")
+            
+            history_df = get_login_history()
+            
+            if history_df.empty:
+                st.info("No login history yet")
+            else:
+                st.dataframe(history_df, use_container_width=True, height=400)
+
+def add_logout_button():
+    """Add logout button to sidebar"""
+    st.sidebar.divider()
+    
+    if st.sidebar.button("🚪 Logout", use_container_width=True, type="secondary"):
+        # Clear session
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
+
 
 
 # ============================================================================
@@ -936,3 +1242,4 @@ with tab3:
 st.divider()
 
 st.caption("🚀 Consistency is the key to JEE success. Track daily, win big!")
+
