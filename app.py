@@ -234,63 +234,6 @@ def check_password():
     return False
 
 
-# Password Protection Function
-def check_password():
-    """Returns `True` if the user had the correct password."""
-    
-    def password_entered():
-        """Checks whether a password entered by the user is correct."""
-        # Hash the entered password
-        entered_password = st.session_state["password"]
-        hashed_input = hashlib.sha256(entered_password.encode()).hexdigest()
-        
-        # Get the correct password hash from secrets
-        try:
-            correct_hash = st.secrets["password"]["hash"]
-            if hashed_input == correct_hash:
-                st.session_state["password_correct"] = True
-                del st.session_state["password"]  # Don't store password
-            else:
-                st.session_state["password_correct"] = False
-        except:
-            # Fallback for local testing (you can remove this after deployment)
-            if entered_password == "jee2025":
-                st.session_state["password_correct"] = True
-                del st.session_state["password"]
-            else:
-                st.session_state["password_correct"] = False
-
-    # Return True if password is correct
-    if st.session_state.get("password_correct", False):
-        return True
-
-    # Show login form
-    st.markdown("# 🔐 Tracker Login")
-    st.markdown("### Enter password to access your dashboard")
-    
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.text_input(
-            "Password", 
-            type="password", 
-            on_change=password_entered, 
-            key="password",
-            placeholder="Enter your password"
-        )
-        
-        if "password_correct" in st.session_state and not st.session_state["password_correct"]:
-            st.error("😕 Incorrect password. Please try again.")
-        
-        st.info("💡 Tip: Contact admin if you forgot your password")
-    
-    return False
-
-# Check password before showing app
-if not check_password():
-    st.stop()  # Don't run the rest of the app
-
-
-
 # ============================================================================
 # ADMIN PANEL FUNCTIONS
 # ============================================================================
@@ -1324,4 +1267,5 @@ with tab3:
 st.divider()
 
 st.caption("🚀 Consistency is the key to JEE success. Track daily, win big!")
+
 
