@@ -8,6 +8,8 @@ import os
 import hashlib
 import uuid
 from datetime import timedelta
+# Get database path in the same directory as the script
+DB_PATH = os.path.join(os.path.dirname(__file__), 'study_tracker.db')
 
 # Page Configuration
 st.set_page_config(
@@ -23,7 +25,7 @@ st.set_page_config(
 
 def init_auth_database():
     """Initialize authentication and device tracking database"""
-    conn = sqlite3.connect('study_tracker.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
     # Devices table - tracks approved devices
@@ -78,7 +80,7 @@ def generate_session_token():
 
 def save_device_session(device_id, client_info, approved=False):
     """Save device session to database"""
-    conn = sqlite3.connect('study_tracker.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
     session_token = generate_session_token()
@@ -114,7 +116,7 @@ def save_device_session(device_id, client_info, approved=False):
 
 def check_device_approval(device_id):
     """Check if device is approved"""
-    conn = sqlite3.connect('study_tracker.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
     c.execute('''SELECT is_approved, session_token, token_expiry 
@@ -132,7 +134,7 @@ def check_device_approval(device_id):
 
 def log_login_attempt(device_id, client_info, status):
     """Log login attempt"""
-    conn = sqlite3.connect('study_tracker.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
     c.execute('''INSERT INTO login_attempts 
@@ -240,7 +242,7 @@ def check_password():
 
 def get_all_devices():
     """Get all registered devices"""
-    conn = sqlite3.connect('study_tracker.db')
+    conn = sqlite3.connect(DB_PATH)
     try:
         df = pd.read_sql_query('''
             SELECT id, device_id, device_name, ip_address, 
@@ -259,7 +261,7 @@ def get_all_devices():
 
 def get_login_history(limit=50):
     """Get recent login attempts"""
-    conn = sqlite3.connect('study_tracker.db')
+    conn = sqlite3.connect(DB_PATH)
     try:
         df = pd.read_sql_query('''
             SELECT la.timestamp, la.device_id, la.ip_address, 
@@ -276,7 +278,7 @@ def get_login_history(limit=50):
 
 def approve_device(device_id):
     """Approve a device for access"""
-    conn = sqlite3.connect('study_tracker.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("UPDATE authorized_devices SET is_approved = 1 WHERE device_id = ?", 
               (device_id,))
@@ -285,7 +287,7 @@ def approve_device(device_id):
 
 def revoke_device(device_id):
     """Revoke device access"""
-    conn = sqlite3.connect('study_tracker.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("UPDATE authorized_devices SET is_approved = 0 WHERE device_id = ?", 
               (device_id,))
@@ -294,7 +296,7 @@ def revoke_device(device_id):
 
 def delete_device(device_id):
     """Delete device completely"""
-    conn = sqlite3.connect('study_tracker.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("DELETE FROM authorized_devices WHERE device_id = ?", (device_id,))
     c.execute("DELETE FROM login_attempts WHERE device_id = ?", (device_id,))
@@ -375,6 +377,13 @@ def add_logout_button():
             del st.session_state[key]
         st.rerun()
 
+# ============================================================================
+# CHECK AUTHENTICATION BEFORE RUNNING APP
+# ============================================================================
+
+# Check password before showing app
+if not check_password():
+    st.stop()  # Don't run the rest of the app
 
 
 # ============================================================================
@@ -382,7 +391,7 @@ def add_logout_button():
 # ============================================================================
 def get_efficiency_history():
     """Fetch daily task completion rates for all days with tasks"""
-    conn = sqlite3.connect('study_tracker.db')
+    conn = sqlite3.connect(DB_PATH)
     
     query = """
     SELECT 
@@ -802,8 +811,7 @@ def show_efficiency_modal():
 # placement_option_4_floating()
 # show_efficiency_modal()
 
-# Get database path in the same directory as the script
-DB_PATH = os.path.join(os.path.dirname(__file__), 'study_tracker.db')
+
 
 # Database Setup
 def init_database():
@@ -1267,5 +1275,6 @@ with tab3:
 st.divider()
 
 st.caption("🚀 Consistency is the key to JEE success. Track daily, win big!")
+
 
 
